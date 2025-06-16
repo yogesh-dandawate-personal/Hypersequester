@@ -12,6 +12,11 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+from datetime import datetime, timezone
+import json
+import os
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -23,13 +28,369 @@ except ImportError:
 
 try:
     import rasterio
+    from rasterio.transform import from_bounds
+    from rasterio.crs import CRS
     HAS_RASTERIO = True
 except ImportError:
     HAS_RASTERIO = False
 
+try:
+    from shapely.geometry import Polygon, Point
+    from shapely.ops import transform
+    import pyproj
+    HAS_SHAPELY = True
+except ImportError:
+    HAS_SHAPELY = False
+
+class MetadataManager:
+    """
+    Handles metadata for hyperspectral carbon assessments including
+    landowner info, geocoding, timestamps, and KML generation
+    """
+    
+    def __init__(self):
+        self.metadata = {
+            'capture_info': {},
+            'geographic_info': {},
+            'landowner_info': {},
+            'processing_info': {},
+            'quality_metrics': {},
+            'carbon_assessment': {}
+        }
+    
+    def set_capture_info(self, capture_datetime=None, sensor_info=None, 
+                        flight_altitude=None, weather_conditions=None):
+        """Set capture-related metadata"""
+        if capture_datetime is None:
+            capture_datetime = datetime.now(timezone.utc)
+        elif isinstance(capture_datetime, str):
+            capture_datetime = datetime.fromisoformat(capture_datetime)
+        
+        self.metadata['capture_info'] = {
+            'datetime_utc': capture_datetime.isoformat(),
+            'date': capture_datetime.strftime('%Y-%m-%d'),
+            'time': capture_datetime.strftime('%H:%M:%S UTC'),
+            'sensor_info': sensor_info or "Unknown Hyperspectral Sensor",
+            'flight_altitude_m': flight_altitude,
+            'weather_conditions': weather_conditions,
+            'spectral_range_nm': None,  # Will be filled during processing
+            'spatial_resolution_m': None  # Will be filled during processing
+        }
+    
+    def set_geographic_info(self, polygon_coords=None, crs='EPSG:4326', 
+                           location_name=None, country=None, state_province=None):
+        """Set geographic information"""
+        self.metadata['geographic_info'] = {
+            'polygon_coordinates': polygon_coords,  # List of [lon, lat] pairs
+            'coordinate_system': crs,
+            'location_name': location_name,
+            'country': country,
+            'state_province': state_province,
+            'area_hectares': None,  # Will be calculated
+            'centroid_lat': None,   # Will be calculated
+            'centroid_lon': None    # Will be calculated
+        }
+        
+        if polygon_coords and len(polygon_coords) >= 3:
+            self._calculate_area_and_centroid(polygon_coords)
+    
+    def set_landowner_info(self, owner_name=None, owner_type=None, 
+                          contact_info=None, property_id=None, 
+                          land_use_type=None, management_notes=None):
+        """Set landowner and property information"""
+        self.metadata['landowner_info'] = {
+            'owner_name': owner_name,
+            'owner_type': owner_type,  # e.g., 'Private', 'Government', 'NGO', 'Corporate'
+            'contact_info': contact_info,
+            'property_id': property_id,
+            'land_use_type': land_use_type,  # e.g., 'Forestry', 'Conservation', 'Mixed'
+            'management_notes': management_notes,
+            'certification_status': None,  # e.g., 'FSC Certified', 'Sustainable'
+            'carbon_credits_eligible': None
+        }
+    
+    def set_processing_info(self, processing_datetime=None, software_version=None,
+                           processing_parameters=None, quality_flags=None):
+        """Set processing-related metadata"""
+        if processing_datetime is None:
+            processing_datetime = datetime.now(timezone.utc)
+        
+        self.metadata['processing_info'] = {
+            'processing_datetime_utc': processing_datetime.isoformat(),
+            'software_version': software_version or "SpectralCarbonEstimator v1.0",
+            'processing_parameters': processing_parameters or {},
+            'quality_flags': quality_flags or [],
+            'algorithms_used': [
+                'Red Edge Position Analysis',
+                'Biochemical Component Estimation',
+                'Forest Type Classification',
+                'Carbon Pool Calculation'
+            ]
+        }
+    
+    def _calculate_area_and_centroid(self, polygon_coords):
+        """Calculate area in hectares and centroid coordinates"""
+        if HAS_SHAPELY:
+            try:
+                # Create polygon
+                polygon = Polygon(polygon_coords)
+                
+                # Calculate centroid
+                centroid = polygon.centroid
+                self.metadata['geographic_info']['centroid_lon'] = centroid.x
+                self.metadata['geographic_info']['centroid_lat'] = centroid.y
+                
+                # Calculate area (approximate for lat/lon)
+                # Convert to UTM for accurate area calculation
+                if polygon.bounds:
+                    lon_center = (polygon.bounds[0] + polygon.bounds[2]) / 2
+                    lat_center = (polygon.bounds[1] + polygon.bounds[3]) / 2
+                    
+                    # Estimate UTM zone
+                    utm_zone = int((lon_center + 180) / 6) + 1
+                    utm_crs = f'EPSG:{32600 + utm_zone if lat_center >= 0 else 32700 + utm_zone}'
+                    
+                    # Transform to UTM
+                    transformer = pyproj.Transformer.from_crs('EPSG:4326', utm_crs, always_xy=True)
+                    utm_polygon = transform(transformer.transform, polygon)
+                    
+                    # Calculate area in square meters, convert to hectares
+                    area_m2 = utm_polygon.area
+                    area_hectares = area_m2 / 10000
+                    self.metadata['geographic_info']['area_hectares'] = round(area_hectares, 2)
+                    
+            except Exception as e:
+                print(f"Warning: Could not calculate area and centroid: {e}")
+                # Fallback: simple centroid calculation
+                lons = [coord[0] for coord in polygon_coords]
+                lats = [coord[1] for coord in polygon_coords]
+                self.metadata['geographic_info']['centroid_lon'] = sum(lons) / len(lons)
+                self.metadata['geographic_info']['centroid_lat'] = sum(lats) / len(lats)
+    
+    def update_carbon_assessment(self, carbon_results):
+        """Update metadata with carbon assessment results"""
+        self.metadata['carbon_assessment'] = {
+            'total_carbon_tonnes': float(carbon_results.get('total_carbon_kg', 0)) / 1000,
+            'total_co2_equivalent_tonnes': float(carbon_results.get('total_co2_tonnes', 0)),
+            'carbon_density_tonnes_per_hectare': None,
+            'forest_types_detected': [],
+            'assessment_confidence': None,
+            'carbon_sequestration_potential': None
+        }
+        
+        # Calculate carbon density per hectare
+        if self.metadata['geographic_info']['area_hectares']:
+            area_ha = self.metadata['geographic_info']['area_hectares']
+            self.metadata['carbon_assessment']['carbon_density_tonnes_per_hectare'] = \
+                round(self.metadata['carbon_assessment']['total_co2_equivalent_tonnes'] / area_ha, 2)
+    
+    def generate_kml(self, output_path, include_carbon_data=True):
+        """Generate KML file with polygon and metadata"""
+        
+        # Create KML structure
+        kml = ET.Element('kml', xmlns="http://www.opengis.net/kml/2.2")
+        document = ET.SubElement(kml, 'Document')
+        
+        # Document name and description
+        name = ET.SubElement(document, 'name')
+        name.text = f"Carbon Assessment - {self.metadata['geographic_info'].get('location_name', 'Unknown Location')}"
+        
+        description = ET.SubElement(document, 'description')
+        description.text = self._generate_kml_description()
+        
+        # Add styles for different forest types
+        self._add_kml_styles(document)
+        
+        # Add polygon placemark
+        placemark = ET.SubElement(document, 'Placemark')
+        placemark_name = ET.SubElement(placemark, 'name')
+        placemark_name.text = "Study Area Boundary"
+        
+        # Extended data with metadata
+        extended_data = ET.SubElement(placemark, 'ExtendedData')
+        self._add_extended_data(extended_data)
+        
+        # Style reference
+        style_url = ET.SubElement(placemark, 'styleUrl')
+        style_url.text = "#study_area_style"
+        
+        # Polygon geometry
+        if self.metadata['geographic_info']['polygon_coordinates']:
+            polygon = ET.SubElement(placemark, 'Polygon')
+            outer_boundary = ET.SubElement(polygon, 'outerBoundaryIs')
+            linear_ring = ET.SubElement(outer_boundary, 'LinearRing')
+            coordinates = ET.SubElement(linear_ring, 'coordinates')
+            
+            # Format coordinates as lon,lat,alt
+            coord_strings = []
+            for coord in self.metadata['geographic_info']['polygon_coordinates']:
+                if len(coord) >= 2:
+                    coord_strings.append(f"{coord[0]},{coord[1]},0")
+            
+            # Close polygon by repeating first coordinate
+            if coord_strings and coord_strings[0] != coord_strings[-1]:
+                coord_strings.append(coord_strings[0])
+            
+            coordinates.text = ' '.join(coord_strings)
+        
+        # Write KML file
+        self._write_kml_file(kml, output_path)
+        print(f"KML file generated: {output_path}")
+        
+        return output_path
+    
+    def _generate_kml_description(self):
+        """Generate HTML description for KML"""
+        desc = "<![CDATA["
+        desc += "<h3>Hyperspectral Carbon Assessment</h3>"
+        
+        # Capture info
+        if self.metadata['capture_info']:
+            desc += "<h4>Capture Information</h4>"
+            desc += f"<p><b>Date:</b> {self.metadata['capture_info'].get('date', 'Unknown')}<br/>"
+            desc += f"<b>Time:</b> {self.metadata['capture_info'].get('time', 'Unknown')}<br/>"
+            desc += f"<b>Sensor:</b> {self.metadata['capture_info'].get('sensor_info', 'Unknown')}</p>"
+        
+        # Landowner info
+        if self.metadata['landowner_info'].get('owner_name'):
+            desc += "<h4>Property Information</h4>"
+            desc += f"<p><b>Owner:</b> {self.metadata['landowner_info']['owner_name']}<br/>"
+            if self.metadata['landowner_info'].get('property_id'):
+                desc += f"<b>Property ID:</b> {self.metadata['landowner_info']['property_id']}<br/>"
+            if self.metadata['landowner_info'].get('land_use_type'):
+                desc += f"<b>Land Use:</b> {self.metadata['landowner_info']['land_use_type']}</p>"
+        
+        # Geographic info
+        if self.metadata['geographic_info']:
+            desc += "<h4>Geographic Information</h4>"
+            desc += f"<p><b>Location:</b> {self.metadata['geographic_info'].get('location_name', 'Unknown')}<br/>"
+            if self.metadata['geographic_info'].get('area_hectares'):
+                desc += f"<b>Area:</b> {self.metadata['geographic_info']['area_hectares']} hectares<br/>"
+            if self.metadata['geographic_info'].get('country'):
+                desc += f"<b>Country:</b> {self.metadata['geographic_info']['country']}</p>"
+        
+        # Carbon assessment results
+        if self.metadata['carbon_assessment']:
+            desc += "<h4>Carbon Assessment Results</h4>"
+            desc += f"<p><b>Total Carbon:</b> {self.metadata['carbon_assessment'].get('total_carbon_tonnes', 0):.1f} tonnes<br/>"
+            desc += f"<b>CO₂ Equivalent:</b> {self.metadata['carbon_assessment'].get('total_co2_equivalent_tonnes', 0):.1f} tonnes<br/>"
+            if self.metadata['carbon_assessment'].get('carbon_density_tonnes_per_hectare'):
+                desc += f"<b>Carbon Density:</b> {self.metadata['carbon_assessment']['carbon_density_tonnes_per_hectare']} tonnes CO₂/hectare</p>"
+        
+        desc += "]]>"
+        return desc
+    
+    def _add_kml_styles(self, document):
+        """Add KML styles for visualization"""
+        style = ET.SubElement(document, 'Style', id="study_area_style")
+        line_style = ET.SubElement(style, 'LineStyle')
+        line_color = ET.SubElement(line_style, 'color')
+        line_color.text = "ff0000ff"  # Red border
+        line_width = ET.SubElement(line_style, 'width')
+        line_width.text = "3"
+        
+        poly_style = ET.SubElement(style, 'PolyStyle')
+        poly_color = ET.SubElement(poly_style, 'color')
+        poly_color.text = "4000ff00"  # Semi-transparent green fill
+    
+    def _add_extended_data(self, extended_data):
+        """Add extended data to KML placemark"""
+        # Add key metadata as extended data
+        data_items = [
+            ('capture_date', self.metadata['capture_info'].get('date')),
+            ('sensor_info', self.metadata['capture_info'].get('sensor_info')),
+            ('owner_name', self.metadata['landowner_info'].get('owner_name')),
+            ('property_id', self.metadata['landowner_info'].get('property_id')),
+            ('total_carbon_tonnes', self.metadata['carbon_assessment'].get('total_carbon_tonnes')),
+            ('co2_equivalent_tonnes', self.metadata['carbon_assessment'].get('total_co2_equivalent_tonnes')),
+            ('area_hectares', self.metadata['geographic_info'].get('area_hectares'))
+        ]
+        
+        for name, value in data_items:
+            if value is not None:
+                data = ET.SubElement(extended_data, 'Data', name=name)
+                data_value = ET.SubElement(data, 'value')
+                data_value.text = str(value)
+    
+    def _write_kml_file(self, kml_element, output_path):
+        """Write KML to file with proper formatting"""
+        rough_string = ET.tostring(kml_element, encoding='unicode')
+        reparsed = minidom.parseString(rough_string)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(reparsed.toprettyxml(indent="  "))
+    
+    def export_metadata_json(self, output_path):
+        """Export complete metadata as JSON"""
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(self.metadata, f, indent=2, ensure_ascii=False, default=str)
+        print(f"Metadata JSON exported: {output_path}")
+        return output_path
+    
+    def export_carbon_report(self, output_path, carbon_pools=None):
+        """Export detailed carbon assessment report"""
+        report = {
+            'report_header': {
+                'title': 'Hyperspectral Carbon Pool Assessment Report',
+                'generated_datetime': datetime.now(timezone.utc).isoformat(),
+                'report_version': '1.0'
+            },
+            'metadata': self.metadata,
+            'executive_summary': self._generate_executive_summary(),
+            'detailed_results': carbon_pools if carbon_pools else {},
+            'methodology': {
+                'spectral_bands_used': [
+                    'Red Edge (674-730nm): Biomass and LAI estimation',
+                    'SWIR Lignin (1680nm): Wood composition analysis', 
+                    'SWIR Cellulose (2100nm, 2300nm): Biochemical content',
+                    'Water Bands (1450nm, 1940nm): Moisture content'
+                ],
+                'carbon_conversion_factors': {
+                    'lignin_carbon_fraction': 0.63,
+                    'cellulose_carbon_fraction': 0.44,
+                    'dry_matter_fraction': 0.85,
+                    'co2_conversion_factor': 3.67
+                }
+            }
+        }
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2, ensure_ascii=False, default=str)
+        print(f"Carbon assessment report exported: {output_path}")
+        return output_path
+    
+    def _generate_executive_summary(self):
+        """Generate executive summary for carbon report"""
+        summary = {
+            'assessment_overview': f"Hyperspectral carbon assessment of {self.metadata['geographic_info'].get('area_hectares', 'unknown')} hectares",
+            'key_findings': {},
+            'recommendations': []
+        }
+        
+        if self.metadata['carbon_assessment']:
+            total_carbon = self.metadata['carbon_assessment'].get('total_co2_equivalent_tonnes', 0)
+            carbon_density = self.metadata['carbon_assessment'].get('carbon_density_tonnes_per_hectare', 0)
+            
+            summary['key_findings'] = {
+                'total_carbon_stored': f"{total_carbon:.1f} tonnes CO₂ equivalent",
+                'carbon_density': f"{carbon_density:.1f} tonnes CO₂ per hectare",
+                'assessment_date': self.metadata['capture_info'].get('date', 'Unknown')
+            }
+            
+            # Generate recommendations based on carbon density
+            if carbon_density > 100:
+                summary['recommendations'].append("High carbon density forest - prioritize for conservation")
+            elif carbon_density > 50:
+                summary['recommendations'].append("Moderate carbon density - sustainable management recommended")
+            else:
+                summary['recommendations'].append("Low carbon density - consider reforestation opportunities")
+        
+        return summary
+
 class SpectralCarbonEstimator:
     """
     Advanced carbon pool estimator using research-optimized spectral bands
+    with comprehensive metadata management and geographic information
     """
     
     def __init__(self, pixel_size=1.0):
@@ -38,6 +399,92 @@ class SpectralCarbonEstimator:
         self.vegetation_indices = {}
         self.biochemical_maps = {}
         self.carbon_factors = self._define_carbon_factors()
+        self.metadata_manager = MetadataManager()
+        
+    def setup_metadata(self, capture_datetime=None, sensor_info=None, 
+                      polygon_coords=None, location_name=None,
+                      owner_name=None, owner_type=None, property_id=None,
+                      contact_info=None, land_use_type=None, country=None,
+                      state_province=None, flight_altitude=None,
+                      weather_conditions=None, management_notes=None):
+        """
+        Setup comprehensive metadata for the carbon assessment
+        
+        Parameters:
+        -----------
+        capture_datetime : str or datetime
+            Date and time of image capture (ISO format or datetime object)
+        sensor_info : str
+            Information about the hyperspectral sensor used
+        polygon_coords : list
+            List of [longitude, latitude] coordinate pairs defining study area boundary
+        location_name : str
+            Descriptive name of the location
+        owner_name : str
+            Name of the landowner or managing entity
+        owner_type : str
+            Type of ownership ('Private', 'Government', 'NGO', 'Corporate')
+        property_id : str
+            Unique identifier for the property
+        contact_info : str
+            Contact information for the landowner
+        land_use_type : str
+            Type of land use ('Forestry', 'Conservation', 'Mixed', etc.)
+        country : str
+            Country where the study area is located
+        state_province : str
+            State or province
+        flight_altitude : float
+            Flight altitude in meters (for airborne sensors)
+        weather_conditions : str
+            Weather conditions during capture
+        management_notes : str
+            Notes about forest management practices
+        
+        Example:
+        --------
+        estimator.setup_metadata(
+            capture_datetime='2024-06-15T10:30:00Z',
+            sensor_info='AVIRIS-NG Hyperspectral Imager',
+            polygon_coords=[[-122.5, 45.5], [-122.4, 45.5], [-122.4, 45.6], [-122.5, 45.6]],
+            location_name='Pacific Northwest Forest Reserve',
+            owner_name='Oregon State Forest Service',
+            owner_type='Government',
+            property_id='OR-FOREST-001',
+            country='United States',
+            state_province='Oregon',
+            land_use_type='Conservation'
+        )
+        """
+        
+        # Set capture information
+        self.metadata_manager.set_capture_info(
+            capture_datetime=capture_datetime,
+            sensor_info=sensor_info,
+            flight_altitude=flight_altitude,
+            weather_conditions=weather_conditions
+        )
+        
+        # Set geographic information
+        self.metadata_manager.set_geographic_info(
+            polygon_coords=polygon_coords,
+            location_name=location_name,
+            country=country,
+            state_province=state_province
+        )
+        
+        # Set landowner information
+        self.metadata_manager.set_landowner_info(
+            owner_name=owner_name,
+            owner_type=owner_type,
+            contact_info=contact_info,
+            property_id=property_id,
+            land_use_type=land_use_type,
+            management_notes=management_notes
+        )
+        
+        print("Metadata setup completed successfully!")
+        return self.metadata_manager.metadata
         
     def _define_key_wavelengths(self):
         """Define research-based key wavelengths for carbon estimation"""
@@ -574,16 +1021,34 @@ class SpectralCarbonEstimator:
         plt.tight_layout()
         return fig
     
-    def process_hyperspectral_image(self, file_path, wavelengths=None):
-        """Complete processing pipeline"""
+    def process_hyperspectral_image(self, file_path, wavelengths=None, output_dir='./carbon_assessment_output'):
+        """Complete processing pipeline with metadata integration"""
         print("=" * 60)
-        print("SPECTRAL CARBON POOL ESTIMATION")
+        print("SPECTRAL CARBON POOL ESTIMATION WITH METADATA")
         print("=" * 60)
+        
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Set processing metadata
+        self.metadata_manager.set_processing_info(
+            software_version="SpectralCarbonEstimator v2.0 with Metadata",
+            processing_parameters={
+                'pixel_size_m': self.pixel_size,
+                'key_wavelengths': self.key_wavelengths,
+                'carbon_factors': self.carbon_factors
+            }
+        )
         
         # Load hyperspectral data
         hsi_data, wavelengths = self.load_hyperspectral_image(file_path, wavelengths)
         print(f"Loaded image: {hsi_data.shape}")
         print(f"Wavelength range: {wavelengths[0]:.1f} - {wavelengths[-1]:.1f} nm")
+        
+        # Update metadata with spectral information
+        self.metadata_manager.metadata['capture_info']['spectral_range_nm'] = f"{wavelengths[0]:.1f}-{wavelengths[-1]:.1f}"
+        self.metadata_manager.metadata['capture_info']['spectral_bands'] = len(wavelengths)
+        self.metadata_manager.metadata['capture_info']['spatial_resolution_m'] = self.pixel_size
         
         # Extract key bands
         band_reflectances = self.extract_key_bands(hsi_data, wavelengths)
@@ -606,6 +1071,15 @@ class SpectralCarbonEstimator:
         # Create summary statistics
         summary = self.create_summary_statistics(carbon_pools)
         
+        # Update metadata with carbon assessment results
+        self.metadata_manager.update_carbon_assessment(summary)
+        
+        # Update metadata with detected forest types
+        unique_types = np.unique(carbon_pools['forest_type'])
+        type_names = ['Non-forest', 'Coniferous', 'Deciduous', 'Mixed']
+        detected_types = [type_names[t] for t in unique_types if t < len(type_names)]
+        self.metadata_manager.metadata['carbon_assessment']['forest_types_detected'] = detected_types
+        
         # Results package
         results = {
             'carbon_pools': carbon_pools,
@@ -614,10 +1088,265 @@ class SpectralCarbonEstimator:
             'forest_structure': forest_structure,
             'summary': summary,
             'wavelengths': wavelengths,
-            'key_bands': band_reflectances
+            'key_bands': band_reflectances,
+            'metadata': self.metadata_manager.metadata,
+            'output_directory': output_dir
         }
         
         return results
+    
+    def export_complete_assessment(self, results, include_kml=True, include_geotiff=True):
+        """Export complete carbon assessment with all metadata and geographic data"""
+        output_dir = results['output_directory']
+        base_name = self.metadata_manager.metadata['geographic_info'].get('location_name', 'carbon_assessment')
+        base_name = base_name.replace(' ', '_').lower()
+        
+        # Get timestamp for file names
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        print(f"\nExporting complete assessment to: {output_dir}")
+        print("-" * 50)
+        
+        exported_files = []
+        
+        # 1. Export metadata as JSON
+        metadata_file = os.path.join(output_dir, f"{base_name}_metadata_{timestamp}.json")
+        self.metadata_manager.export_metadata_json(metadata_file)
+        exported_files.append(metadata_file)
+        
+        # 2. Export detailed carbon report
+        report_file = os.path.join(output_dir, f"{base_name}_carbon_report_{timestamp}.json")
+        self.metadata_manager.export_carbon_report(report_file, results['carbon_pools'])
+        exported_files.append(report_file)
+        
+        # 3. Export KML file
+        if include_kml and self.metadata_manager.metadata['geographic_info']['polygon_coordinates']:
+            kml_file = os.path.join(output_dir, f"{base_name}_study_area_{timestamp}.kml")
+            self.metadata_manager.generate_kml(kml_file)
+            exported_files.append(kml_file)
+        
+        # 4. Export carbon results as CSV
+        csv_file = os.path.join(output_dir, f"{base_name}_carbon_summary_{timestamp}.csv")
+        self._export_carbon_csv(results, csv_file)
+        exported_files.append(csv_file)
+        
+        # 5. Export GeoTIFF files for carbon maps
+        if include_geotiff and HAS_RASTERIO:
+            geotiff_files = self._export_geotiff_maps(results, output_dir, base_name, timestamp)
+            exported_files.extend(geotiff_files)
+        
+        # 6. Save visualization plots
+        plot_file = os.path.join(output_dir, f"{base_name}_visualization_{timestamp}.png")
+        fig = self.visualize_results(
+            results['carbon_pools'], 
+            results['vegetation_indices'],
+            results['biochemical_content']
+        )
+        fig.savefig(plot_file, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        exported_files.append(plot_file)
+        
+        # 7. Create assessment summary text file
+        summary_file = os.path.join(output_dir, f"{base_name}_executive_summary_{timestamp}.txt")
+        self._create_text_summary(results, summary_file)
+        exported_files.append(summary_file)
+        
+        print(f"\nExport completed! Files generated:")
+        for file_path in exported_files:
+            print(f"  - {os.path.basename(file_path)}")
+        
+        return exported_files
+    
+    def _export_carbon_csv(self, results, output_path):
+        """Export carbon assessment results as CSV"""
+        summary = results['summary']
+        
+        # Create summary table
+        data = []
+        for forest_name, forest_data in summary['forest_type_breakdown'].items():
+            if forest_data['area_ha'] > 0:
+                data.append({
+                    'Forest_Type': forest_name,
+                    'Area_Hectares': forest_data['area_ha'],
+                    'Total_Carbon_Tonnes': forest_data['total_carbon_tonnes'],
+                    'Carbon_Density_kg_per_m2': forest_data['mean_carbon_density_kg_per_m2'],
+                    'Pixel_Count': forest_data['pixel_count']
+                })
+        
+        # Add metadata
+        metadata_row = {
+            'Forest_Type': 'METADATA',
+            'Area_Hectares': summary['total_area_m2'] / 10000,
+            'Total_Carbon_Tonnes': summary['total_carbon_kg'] / 1000,
+            'Carbon_Density_kg_per_m2': summary['mean_carbon_density'],
+            'Pixel_Count': 'TOTAL'
+        }
+        data.append(metadata_row)
+        
+        df = pd.DataFrame(data)
+        df.to_csv(output_path, index=False)
+        print(f"Carbon summary CSV exported: {os.path.basename(output_path)}")
+    
+    def _export_geotiff_maps(self, results, output_dir, base_name, timestamp):
+        """Export carbon and other maps as GeoTIFF files"""
+        if not HAS_RASTERIO:
+            print("Warning: rasterio not available, skipping GeoTIFF export")
+            return []
+        
+        exported_files = []
+        
+        # Get geographic bounds from metadata
+        polygon_coords = self.metadata_manager.metadata['geographic_info']['polygon_coordinates']
+        if not polygon_coords:
+            print("Warning: No polygon coordinates available, using default bounds")
+            return []
+        
+        # Calculate bounds
+        lons = [coord[0] for coord in polygon_coords]
+        lats = [coord[1] for coord in polygon_coords]
+        bounds = (min(lons), min(lats), max(lons), max(lats))
+        
+        # Get image dimensions
+        height, width = results['carbon_pools']['carbon_density_kg_per_m2'].shape
+        
+        # Create transform
+        transform = from_bounds(*bounds, width, height)
+        
+        # Define maps to export
+        maps_to_export = {
+            'carbon_density': results['carbon_pools']['carbon_density_kg_per_m2'],
+            'co2_equivalent': results['carbon_pools']['co2_equivalent_tonnes'],
+            'forest_type': results['carbon_pools']['forest_type'],
+            'biomass': results['carbon_pools']['dry_biomass_kg'],
+            'lignin_content': results['biochemical_content']['lignin_content'],
+            'cellulose_content': results['biochemical_content']['cellulose_content']
+        }
+        
+        for map_name, map_data in maps_to_export.items():
+            output_path = os.path.join(output_dir, f"{base_name}_{map_name}_{timestamp}.tif")
+            
+            with rasterio.open(
+                output_path, 'w',
+                driver='GTiff',
+                height=height, width=width,
+                count=1, dtype=map_data.dtype,
+                crs='EPSG:4326',
+                transform=transform,
+                compress='lzw'
+            ) as dst:
+                dst.write(map_data, 1)
+                
+                # Add metadata
+                dst.update_tags(
+                    AREA_OR_POINT='Area',
+                    CAPTURE_DATE=self.metadata_manager.metadata['capture_info'].get('date', 'Unknown'),
+                    SENSOR_INFO=self.metadata_manager.metadata['capture_info'].get('sensor_info', 'Unknown'),
+                    PROCESSING_SOFTWARE='SpectralCarbonEstimator v2.0',
+                    LAND_OWNER=self.metadata_manager.metadata['landowner_info'].get('owner_name', 'Unknown'),
+                    LOCATION_NAME=self.metadata_manager.metadata['geographic_info'].get('location_name', 'Unknown')
+                )
+            
+            exported_files.append(output_path)
+            print(f"GeoTIFF exported: {os.path.basename(output_path)}")
+        
+        return exported_files
+    
+    def _create_text_summary(self, results, output_path):
+        """Create executive summary as text file"""
+        summary = results['summary']
+        metadata = self.metadata_manager.metadata
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write("HYPERSPECTRAL CARBON POOL ASSESSMENT\n")
+            f.write("="*50 + "\n\n")
+            
+            # Basic information
+            f.write("ASSESSMENT OVERVIEW\n")
+            f.write("-"*20 + "\n")
+            f.write(f"Location: {metadata['geographic_info'].get('location_name', 'Unknown')}\n")
+            f.write(f"Assessment Date: {metadata['capture_info'].get('date', 'Unknown')}\n")
+            f.write(f"Total Area: {summary['total_area_m2']/10000:.1f} hectares\n")
+            f.write(f"Sensor: {metadata['capture_info'].get('sensor_info', 'Unknown')}\n\n")
+            
+            # Landowner information
+            if metadata['landowner_info'].get('owner_name'):
+                f.write("PROPERTY INFORMATION\n")
+                f.write("-"*20 + "\n")
+                f.write(f"Owner: {metadata['landowner_info']['owner_name']}\n")
+                f.write(f"Owner Type: {metadata['landowner_info'].get('owner_type', 'Unknown')}\n")
+                if metadata['landowner_info'].get('property_id'):
+                    f.write(f"Property ID: {metadata['landowner_info']['property_id']}\n")
+                f.write(f"Land Use: {metadata['landowner_info'].get('land_use_type', 'Unknown')}\n\n")
+            
+            # Carbon results
+            f.write("CARBON ASSESSMENT RESULTS\n")
+            f.write("-"*25 + "\n")
+            f.write(f"Total Carbon Stored: {summary['total_carbon_kg']/1000:.1f} tonnes\n")
+            f.write(f"Total CO₂ Equivalent: {summary['total_co2_tonnes']:.1f} tonnes\n")
+            f.write(f"Carbon Density: {summary['total_co2_tonnes']/(summary['total_area_m2']/10000):.1f} tonnes CO₂/ha\n\n")
+            
+            # Forest type breakdown
+            f.write("FOREST TYPE BREAKDOWN\n")
+            f.write("-"*20 + "\n")
+            for forest_name, data in summary['forest_type_breakdown'].items():
+                if data['area_ha'] > 0:
+                    f.write(f"{forest_name}:\n")
+                    f.write(f"  Area: {data['area_ha']:.1f} ha\n")
+                    f.write(f"  Carbon: {data['total_carbon_tonnes']:.1f} tonnes\n")
+                    f.write(f"  Density: {data['mean_carbon_density_kg_per_m2']:.2f} kg/m²\n\n")
+            
+            # Geographic coordinates
+            if metadata['geographic_info']['polygon_coordinates']:
+                f.write("STUDY AREA COORDINATES (WGS84)\n")
+                f.write("-"*32 + "\n")
+                for i, coord in enumerate(metadata['geographic_info']['polygon_coordinates']):
+                    f.write(f"Point {i+1}: {coord[1]:.6f}°N, {coord[0]:.6f}°W\n")
+                f.write(f"\nCentroid: {metadata['geographic_info'].get('centroid_lat', 0):.6f}°N, ")
+                f.write(f"{metadata['geographic_info'].get('centroid_lon', 0):.6f}°W\n\n")
+            
+            # Processing information
+            f.write("TECHNICAL DETAILS\n")
+            f.write("-"*16 + "\n")
+            f.write(f"Processing Date: {metadata['processing_info'].get('processing_datetime_utc', 'Unknown')}\n")
+            f.write(f"Software: {metadata['processing_info'].get('software_version', 'Unknown')}\n")
+            f.write(f"Spectral Range: {metadata['capture_info'].get('spectral_range_nm', 'Unknown')} nm\n")
+            f.write(f"Spatial Resolution: {metadata['capture_info'].get('spatial_resolution_m', 'Unknown')} m\n")
+        
+        print(f"Executive summary exported: {os.path.basename(output_path)}")
+        
+    def print_metadata_summary(self):
+        """Print summary of loaded metadata"""
+        metadata = self.metadata_manager.metadata
+        
+        print("\n" + "="*60)
+        print("METADATA SUMMARY")
+        print("="*60)
+        
+        # Capture info
+        if metadata['capture_info']:
+            print("CAPTURE INFORMATION:")
+            print(f"  Date: {metadata['capture_info'].get('date', 'Not set')}")
+            print(f"  Sensor: {metadata['capture_info'].get('sensor_info', 'Not set')}")
+            print(f"  Altitude: {metadata['capture_info'].get('flight_altitude_m', 'Not set')} m")
+        
+        # Geographic info
+        if metadata['geographic_info']:
+            print("\nGEOGRAPHIC INFORMATION:")
+            print(f"  Location: {metadata['geographic_info'].get('location_name', 'Not set')}")
+            print(f"  Country: {metadata['geographic_info'].get('country', 'Not set')}")
+            print(f"  Area: {metadata['geographic_info'].get('area_hectares', 'Not calculated')} hectares")
+            if metadata['geographic_info'].get('polygon_coordinates'):
+                print(f"  Boundary: {len(metadata['geographic_info']['polygon_coordinates'])} coordinate points")
+        
+        # Landowner info
+        if metadata['landowner_info'] and metadata['landowner_info'].get('owner_name'):
+            print("\nPROPERTY INFORMATION:")
+            print(f"  Owner: {metadata['landowner_info']['owner_name']}")
+            print(f"  Type: {metadata['landowner_info'].get('owner_type', 'Not set')}")
+            print(f"  Property ID: {metadata['landowner_info'].get('property_id', 'Not set')}")
+            print(f"  Land Use: {metadata['landowner_info'].get('land_use_type', 'Not set')}")
+        
+        print("\n" + "="*60)
     
     def print_summary(self, results):
         """Print detailed summary of carbon assessment"""
@@ -646,16 +1375,48 @@ class SpectralCarbonEstimator:
 
 
 def main():
-    """Main execution function"""
+    """Main execution function with comprehensive metadata example"""
     
     # Initialize the estimator
     estimator = SpectralCarbonEstimator(pixel_size=1.0)
     
-    # Process hyperspectral image (using synthetic data for demo)
-    results = estimator.process_hyperspectral_image('synthetic_forest.hdr')
+    # Setup comprehensive metadata
+    print("Setting up metadata...")
+    estimator.setup_metadata(
+        capture_datetime='2024-06-15T10:30:00Z',
+        sensor_info='AVIRIS-NG Hyperspectral Imager',
+        polygon_coords=[
+            [-122.5, 45.5], [-122.4, 45.5], 
+            [-122.4, 45.6], [-122.5, 45.6], 
+            [-122.5, 45.5]  # Closed polygon
+        ],
+        location_name='Pacific Northwest Forest Reserve',
+        owner_name='Oregon State Forest Service',
+        owner_type='Government',
+        property_id='OR-FOREST-001',
+        contact_info='forestry@oregon.gov',
+        land_use_type='Conservation',
+        country='United States',
+        state_province='Oregon',
+        flight_altitude=1000,
+        weather_conditions='Clear skies, 15°C, light winds',
+        management_notes='Sustainable forestry practices, last thinning 2020'
+    )
     
-    # Print summary
+    # Print metadata summary
+    estimator.print_metadata_summary()
+    
+    # Process hyperspectral image (using synthetic data for demo)
+    results = estimator.process_hyperspectral_image(
+        'synthetic_forest.hdr',
+        output_dir='./pacific_northwest_assessment'
+    )
+    
+    # Print carbon assessment summary
     estimator.print_summary(results)
+    
+    # Export complete assessment with all metadata
+    exported_files = estimator.export_complete_assessment(results)
     
     # Create visualizations
     fig = estimator.visualize_results(
@@ -665,15 +1426,56 @@ def main():
     )
     plt.show()
     
-    return results
+    return results, exported_files
 
-def process_real_hyperspectral_data(file_path, wavelengths=None):
-    """Process real hyperspectral data"""
-    estimator = SpectralCarbonEstimator(pixel_size=1.0)
-    results = estimator.process_hyperspectral_image(file_path, wavelengths)
-    estimator.print_summary(results)
+def process_real_data_with_metadata(file_path, metadata_config, output_dir=None):
+    """
+    Process real hyperspectral data with custom metadata configuration
     
-    # Show results
+    Parameters:
+    -----------
+    file_path : str
+        Path to hyperspectral image file
+    metadata_config : dict
+        Dictionary containing all metadata information
+    output_dir : str
+        Output directory for results
+    
+    Example metadata_config:
+    {
+        'capture_datetime': '2024-06-15T10:30:00Z',
+        'sensor_info': 'AVIRIS-NG',
+        'polygon_coords': [[-122.5, 45.5], [-122.4, 45.5], ...],
+        'location_name': 'My Forest',
+        'owner_name': 'Forest Owner Name',
+        'owner_type': 'Private',
+        'property_id': 'PROP-001',
+        'country': 'United States',
+        'land_use_type': 'Forestry'
+    }
+    """
+    
+    estimator = SpectralCarbonEstimator(pixel_size=1.0)
+    
+    # Setup metadata from config
+    estimator.setup_metadata(**metadata_config)
+    
+    # Set output directory
+    if output_dir is None:
+        location_name = metadata_config.get('location_name', 'forest_assessment')
+        output_dir = f"./{location_name.replace(' ', '_').lower()}_results"
+    
+    # Process the image
+    results = estimator.process_hyperspectral_image(file_path, output_dir=output_dir)
+    
+    # Print results
+    estimator.print_summary(results)
+    estimator.print_metadata_summary()
+    
+    # Export everything
+    exported_files = estimator.export_complete_assessment(results)
+    
+    # Show visualizations
     estimator.visualize_results(
         results['carbon_pools'],
         results['vegetation_indices'], 
@@ -681,11 +1483,121 @@ def process_real_hyperspectral_data(file_path, wavelengths=None):
     )
     plt.show()
     
-    return results
+    return results, exported_files
+
+def create_kml_only(polygon_coords, metadata_dict, output_path):
+    """
+    Create standalone KML file with carbon assessment metadata
+    
+    Parameters:
+    -----------
+    polygon_coords : list
+        List of [longitude, latitude] coordinate pairs
+    metadata_dict : dict
+        Dictionary with capture, landowner, and assessment metadata
+    output_path : str
+        Path for output KML file
+    """
+    
+    metadata_manager = MetadataManager()
+    
+    # Set all metadata
+    metadata_manager.set_capture_info(**metadata_dict.get('capture_info', {}))
+    metadata_manager.set_geographic_info(
+        polygon_coords=polygon_coords,
+        **metadata_dict.get('geographic_info', {})
+    )
+    metadata_manager.set_landowner_info(**metadata_dict.get('landowner_info', {}))
+    
+    # Add carbon assessment results if available
+    if 'carbon_assessment' in metadata_dict:
+        metadata_manager.metadata['carbon_assessment'] = metadata_dict['carbon_assessment']
+    
+    # Generate KML
+    kml_path = metadata_manager.generate_kml(output_path)
+    return kml_path
+
+# Example usage scenarios
+def example_private_forest():
+    """Example: Private forest assessment"""
+    estimator = SpectralCarbonEstimator(pixel_size=2.0)
+    
+    estimator.setup_metadata(
+        capture_datetime='2024-07-20T14:15:00Z',
+        sensor_info='HySpex VNIR-1800',
+        polygon_coords=[
+            [-85.123, 42.456], [-85.098, 42.456],
+            [-85.098, 42.478], [-85.123, 42.478],
+            [-85.123, 42.456]
+        ],
+        location_name='Johnson Family Forest',
+        owner_name='Johnson Family Trust',
+        owner_type='Private',
+        property_id='JOHNSON-FOREST-001',
+        contact_info='info@johnsonforest.com',
+        land_use_type='Sustainable Forestry',
+        country='United States',
+        state_province='Michigan',
+        flight_altitude=800,
+        weather_conditions='Partly cloudy, 22°C',
+        management_notes='Certified sustainable forestry, FSC certified'
+    )
+    
+    return estimator.process_hyperspectral_image(
+        'johnson_forest.hdr',
+        output_dir='./johnson_forest_assessment'
+    )
+
+def example_conservation_area():
+    """Example: Conservation area assessment"""
+    estimator = SpectralCarbonEstimator(pixel_size=1.5)
+    
+    estimator.setup_metadata(
+        capture_datetime='2024-08-10T11:45:00Z',
+        sensor_info='AVIRIS Classic',
+        polygon_coords=[
+            [-120.567, 38.789], [-120.534, 38.789],
+            [-120.534, 38.812], [-120.567, 38.812],
+            [-120.567, 38.789]
+        ],
+        location_name='Sierra Nevada Conservation Reserve',
+        owner_name='Nature Conservancy',
+        owner_type='NGO',
+        property_id='TNC-SIERRA-005',
+        contact_info='conservation@tnc.org',
+        land_use_type='Conservation',
+        country='United States',
+        state_province='California',
+        flight_altitude=1200,
+        weather_conditions='Clear, 18°C, no wind',
+        management_notes='Old growth forest protection, fire management zone'
+    )
+    
+    return estimator.process_hyperspectral_image(
+        'sierra_conservation.hdr',
+        output_dir='./sierra_conservation_assessment'
+    )
 
 if __name__ == "__main__":
-    # Run with synthetic data
-    results = main()
+    # Run main example with comprehensive metadata
+    results, files = main()
     
-    # To process real data, uncomment and modify:
-    # results = process_real_hyperspectral_data('path/to/your/hyperspectral_image.hdr')
+    print(f"\nExample completed! Check output files:")
+    for file_path in files:
+        print(f"  - {file_path}")
+    
+    # Uncomment to run other examples:
+    # example_private_forest()
+    # example_conservation_area()
+    
+    # Example of processing real data:
+    # metadata_config = {
+    #     'capture_datetime': '2024-06-15T10:30:00Z',
+    #     'sensor_info': 'Your Sensor Name',
+    #     'polygon_coords': [your_coordinates],
+    #     'location_name': 'Your Forest Name',
+    #     'owner_name': 'Owner Name',
+    #     'owner_type': 'Private',
+    #     'country': 'Your Country'
+    # }
+    # process_real_data_with_metadata('path/to/your/image.hdr', metadata_config)
