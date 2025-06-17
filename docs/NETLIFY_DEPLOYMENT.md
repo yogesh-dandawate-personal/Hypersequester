@@ -74,7 +74,7 @@ The Hypersequester application is deployed as a static React application on Netl
 
 ```bash
 # Clone the repository
-git clone https://github.com/Instoradmin/Hypersequester.git
+git clone https://github.com/yogesh-dandawate-personal/Hypersequester.git
 cd Hypersequester
 
 # Install dependencies
@@ -375,6 +375,6 @@ REACT_APP_ANALYTICS_ID=   # Google Analytics ID
 
 ---
 
-**Last Updated**: June 17, 2024  
-**Netlify Site**: https://hypersequester.netlify.app  
+**Last Updated**: June 17, 2024
+**Netlify Site**: https://hypersequester.netlify.app
 **Status**: Ready for deployment

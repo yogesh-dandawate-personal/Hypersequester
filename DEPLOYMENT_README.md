@@ -4,7 +4,7 @@
 
 ### Option 1: One-Click Deploy (Recommended)
 
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/Instoradmin/Hypersequester)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/yogesh-dandawate-personal/Hypersequester)
 
 ### Option 2: Manual Deployment
 
@@ -58,7 +58,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/Instoradmin/Hypersequester.git
+git clone https://github.com/yogesh-dandawate-personal/Hypersequester.git
 cd Hypersequester
 
 # Install dependencies
