@@ -6,7 +6,7 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "build:netlify": "REACT_APP_API_URL=https://hypersequester-api.herokuapp.com/api/v1 npm run build",
+    "build:netlify": "REACT_APP_API_URL=https://hypersequester-api.herokuapp.com/api/v1 REACT_APP_DEMO_MODE=true npm run build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "lint": "eslint src/frontend --ext .js,.jsx,.ts,.tsx",

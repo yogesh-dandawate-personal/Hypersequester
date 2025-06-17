@@ -8,34 +8,37 @@
     <meta name="description" content="Hypersequester - Hyperspectral Forest Carbon Assessment Platform" />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    
+
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
           integrity="sha256-kLaT2GOSpHechhsozzB+flnD+zUyjE2LlfWPgU04xyI="
           crossorigin=""/>
-    
+
     <!-- Ant Design Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/antd/5.2.0/reset.min.css" />
-    
+
     <title>Hypersequester - Forest Carbon Assessment</title>
-    
+
+    <!-- Netlify Identity Widget (for future authentication) -->
+    <script type="text/javascript" src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+
     <!-- SEO Meta Tags -->
     <meta property="og:title" content="Hypersequester - Forest Carbon Assessment" />
     <meta property="og:description" content="Comprehensive hyperspectral forest carbon assessment platform for precise carbon pool estimations" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://hypersequester.netlify.app" />
     <meta property="og:image" content="%PUBLIC_URL%/og-image.png" />
-    
+
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Hypersequester - Forest Carbon Assessment" />
     <meta name="twitter:description" content="Comprehensive hyperspectral forest carbon assessment platform" />
     <meta name="twitter:image" content="%PUBLIC_URL%/twitter-image.png" />
-    
+
     <!-- Preload critical resources -->
     <link rel="preload" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" as="style" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    
+
     <!-- Performance optimizations -->
     <link rel="dns-prefetch" href="//api.mapbox.com" />
     <link rel="dns-prefetch" href="//tiles.mapbox.com" />
@@ -49,7 +52,7 @@
       </div>
     </noscript>
     <div id="root"></div>
-    
+
     <!-- Loading indicator -->
     <div id="loading-indicator" style="
       position: fixed;
@@ -78,19 +81,19 @@
         <p style="color: #666; margin: 10px 0 0;">Loading Forest Carbon Assessment Platform...</p>
       </div>
     </div>
-    
+
     <style>
       @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
       }
-      
+
       /* Hide loading indicator when React loads */
       #root:not(:empty) ~ #loading-indicator {
         display: none;
       }
     </style>
-    
+
     <!-- Remove loading indicator after React mounts -->
     <script>
       window.addEventListener('load', function() {

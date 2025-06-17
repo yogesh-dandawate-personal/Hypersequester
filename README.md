@@ -17,17 +17,36 @@ Hypersequester serves forestry professionals, carbon credit markets, conservatio
 
 ## Quick Start
 
+### Frontend Only (Netlify Demo)
 ```bash
 # Clone the repository
-git clone https://github.com/Instoradmin/Hypersequester.git
+git clone https://github.com/yogesh-dandawate-personal/Hypersequester.git
 cd Hypersequester
 
-# Install dependencies
+# Install frontend dependencies
+npm install
+
+# Run frontend in demo mode
+npm start
+```
+
+### Full Stack Development
+```bash
+# Install all dependencies
 pip install -r requirements.txt
 npm install
 
-# Run the application
+# Run backend
 python src/main.py
+
+# Run frontend (in another terminal)
+npm start
+```
+
+### Docker Deployment
+```bash
+# Run complete stack
+docker-compose up --build
 ```
 
 ## Documentation
@@ -44,17 +63,33 @@ Comprehensive documentation is available in the `/docs` folder:
 
 ```
 Hypersequester/
-├── src/                    # Main source code
-│   ├── backend/           # Backend API and services
-│   ├── frontend/          # React.js web application
+├── src/                    # Integrated source code
+│   ├── backend/           # Flask API and services
+│   │   ├── app.py         # Flask application factory
+│   │   ├── models.py      # Database models
+│   │   ├── routes.py      # API endpoints
+│   │   └── tasks.py       # Background processing
 │   ├── core/              # Core spectral processing algorithms
+│   │   ├── processor.py   # Main processing engine
+│   │   └── SpectralCarbonPoolEstimator.py
 │   ├── models/            # Machine learning models
-│   └── utils/             # Utility functions
+│   │   ├── species_classifier.py
+│   │   └── carbon_estimator.py
+│   ├── utils/             # Utility functions
+│   │   ├── helpers.py     # Python utilities
+│   │   ├── api.js         # Frontend API client
+│   │   └── demoData.js    # Demo mode data
+│   ├── components/        # React components
+│   ├── pages/             # React pages
+│   ├── hooks/             # React hooks
+│   ├── styles/            # CSS styles
+│   ├── App.js             # React app entry
+│   ├── index.js           # Frontend entry point
+│   └── main.py            # Backend entry point
+├── public/                # Static files
 ├── tests/                 # Test suites
 ├── config/                # Configuration files
 ├── scripts/               # Build and deployment scripts
-├── data/                  # Sample data and test datasets
-├── docker/                # Docker configuration
 ├── docs/                  # Documentation
 └── README.md
 ```

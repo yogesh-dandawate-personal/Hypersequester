@@ -1,6 +1,6 @@
 [build]
   # Build command for the React frontend
-  command = "npm run build:netlify"
+  command = "npm install && npm run build"
 
   # Directory to publish (React build output)
   publish = "build"
@@ -18,6 +18,7 @@
   # Environment variables for build
   REACT_APP_API_URL = "https://hypersequester-api.herokuapp.com/api/v1"
   REACT_APP_ENVIRONMENT = "production"
+  REACT_APP_DEMO_MODE = "true"
   GENERATE_SOURCEMAP = "false"
 
 # Redirect rules for React Router
