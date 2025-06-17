@@ -1,17 +1,20 @@
 [build]
   # Build command for the React frontend
   command = "npm run build:netlify"
-  
+
   # Directory to publish (React build output)
   publish = "build"
-  
+
   # Base directory for build
   base = "."
+
+  # Functions directory (for future serverless functions)
+  functions = "netlify/functions"
 
 [build.environment]
   # Node.js version
   NODE_VERSION = "18"
-  
+
   # Environment variables for build
   REACT_APP_API_URL = "https://hypersequester-api.herokuapp.com/api/v1"
   REACT_APP_ENVIRONMENT = "production"
@@ -48,9 +51,7 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# Functions directory (for future serverless functions)
-[build]
-  functions = "netlify/functions"
+
 
 # Dev server settings for local development
 [dev]
