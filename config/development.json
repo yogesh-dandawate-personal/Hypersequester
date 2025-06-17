@@ -1,0 +1,31 @@
+{
+  "environment": "development",
+  "debug": true,
+  "database": {
+    "url": "postgresql://localhost/hypersequester_dev",
+    "pool_size": 5,
+    "max_overflow": 10
+  },
+  "redis": {
+    "url": "redis://localhost:6379/0"
+  },
+  "processing": {
+    "default_pixel_size": 1.0,
+    "max_concurrent_jobs": 2,
+    "processing_timeout": 3600,
+    "supported_formats": ["AVIRIS", "HySpex", "PRISMA", "EnMAP"]
+  },
+  "storage": {
+    "upload_folder": "data/uploads",
+    "results_folder": "data/results",
+    "max_file_size_gb": 16
+  },
+  "logging": {
+    "level": "DEBUG",
+    "file": "logs/hypersequester_dev.log"
+  },
+  "security": {
+    "jwt_expiration_hours": 24,
+    "password_min_length": 8
+  }
+}
