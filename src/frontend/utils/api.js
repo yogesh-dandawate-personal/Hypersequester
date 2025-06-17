@@ -3,19 +3,62 @@
  */
 
 import axios from 'axios';
+import { isDemoMode, demoApiResponses, simulateApiDelay } from './demoData';
+
+// API Configuration based on environment
+const getApiBaseURL = () => {
+  // Check for environment variable first
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL;
+  }
+
+  // Fallback based on hostname
+  const hostname = window.location.hostname;
+
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return '/api/v1'; // Local development with proxy
+  } else if (hostname.includes('netlify.app')) {
+    return 'https://hypersequester-api.herokuapp.com/api/v1'; // Production API
+  } else {
+    return '/api/v1'; // Default fallback
+  }
+};
 
 // Create axios instance with default configuration
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || '/api/v1',
+  baseURL: getApiBaseURL(),
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Request interceptor to add auth token
+// Demo mode interceptor
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
+    // Check if we're in demo mode
+    if (isDemoMode()) {
+      const endpoint = config.url.replace(config.baseURL, '');
+      const demoResponse = demoApiResponses[endpoint];
+
+      if (demoResponse) {
+        // Simulate API delay
+        await simulateApiDelay();
+
+        // Return demo data
+        return Promise.reject({
+          response: {
+            data: demoResponse,
+            status: 200,
+            statusText: 'OK (Demo Mode)',
+          },
+          config,
+          isDemo: true,
+        });
+      }
+    }
+
+    // Add auth token for real API calls
     const token = localStorage.getItem('authToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -27,15 +70,28 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor for error handling
+// Response interceptor for error handling and demo mode
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Handle demo mode responses
+    if (error.isDemo) {
+      return Promise.resolve(error.response);
+    }
+
+    // Handle real API errors
     if (error.response?.status === 401) {
       // Handle unauthorized access
       localStorage.removeItem('authToken');
       window.location.href = '/login';
     }
+
+    // If API is not available and we're not in demo mode, enable demo mode
+    if (!error.response && !isDemoMode()) {
+      console.warn('API not available, enabling demo mode');
+      window.location.search = window.location.search + (window.location.search ? '&' : '?') + 'demo=true';
+    }
+
     return Promise.reject(error);
   }
 );
@@ -81,7 +137,7 @@ export const uploadAPI = {
   uploadHyperspectralData: (file, onProgress) => {
     const formData = new FormData();
     formData.append('file', file);
-    
+
     return api.post('/upload/hyperspectral', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',

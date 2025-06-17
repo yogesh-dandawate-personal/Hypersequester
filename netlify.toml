@@ -1,0 +1,60 @@
+[build]
+  # Build command for the React frontend
+  command = "npm run build:netlify"
+  
+  # Directory to publish (React build output)
+  publish = "build"
+  
+  # Base directory for build
+  base = "."
+
+[build.environment]
+  # Node.js version
+  NODE_VERSION = "18"
+  
+  # Environment variables for build
+  REACT_APP_API_URL = "https://hypersequester-api.herokuapp.com/api/v1"
+  REACT_APP_ENVIRONMENT = "production"
+  GENERATE_SOURCEMAP = "false"
+
+# Redirect rules for React Router
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Headers for security and performance
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://hypersequester-api.herokuapp.com https://api.mapbox.com https://tiles.mapbox.com;"
+
+[[headers]]
+  for = "/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Functions directory (for future serverless functions)
+[build]
+  functions = "netlify/functions"
+
+# Dev server settings for local development
+[dev]
+  command = "npm start"
+  port = 3000
+  publish = "build"
+  autoLaunch = true

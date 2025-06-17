@@ -4,6 +4,7 @@ import { Layout } from 'antd';
 
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
+import DemoModeIndicator from './components/DemoModeIndicator';
 import Dashboard from './pages/Dashboard';
 import Properties from './pages/Properties';
 import Assessments from './pages/Assessments';
@@ -18,6 +19,7 @@ function App() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header />
+      <DemoModeIndicator />
       <Layout>
         <Sidebar />
         <Layout style={{ padding: '24px' }}>

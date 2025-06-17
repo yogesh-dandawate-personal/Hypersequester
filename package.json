@@ -6,11 +6,14 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "build:netlify": "REACT_APP_API_URL=https://hypersequester-api.herokuapp.com/api/v1 npm run build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "lint": "eslint src/frontend --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint src/frontend --ext .js,.jsx,.ts,.tsx --fix",
-    "format": "prettier --write src/frontend/**/*.{js,jsx,ts,tsx,css,md}"
+    "format": "prettier --write src/frontend/**/*.{js,jsx,ts,tsx,css,md}",
+    "analyze": "npm run build && npx bundle-analyzer build/static/js/*.js",
+    "serve": "serve -s build -l 3000"
   },
   "dependencies": {
     "react": "^18.2.0",
@@ -48,7 +51,9 @@
     "eslint-plugin-react": "^7.32.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "prettier": "^2.8.4",
-    "typescript": "^4.9.5"
+    "typescript": "^4.9.5",
+    "serve": "^14.2.0",
+    "webpack-bundle-analyzer": "^4.8.0"
   },
   "browserslist": {
     "production": [

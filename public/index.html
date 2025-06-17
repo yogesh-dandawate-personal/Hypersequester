@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#52c41a" />
+    <meta name="description" content="Hypersequester - Hyperspectral Forest Carbon Assessment Platform" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
+          integrity="sha256-kLaT2GOSpHechhsozzB+flnD+zUyjE2LlfWPgU04xyI="
+          crossorigin=""/>
+    
+    <!-- Ant Design Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/antd/5.2.0/reset.min.css" />
+    
+    <title>Hypersequester - Forest Carbon Assessment</title>
+    
+    <!-- SEO Meta Tags -->
+    <meta property="og:title" content="Hypersequester - Forest Carbon Assessment" />
+    <meta property="og:description" content="Comprehensive hyperspectral forest carbon assessment platform for precise carbon pool estimations" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://hypersequester.netlify.app" />
+    <meta property="og:image" content="%PUBLIC_URL%/og-image.png" />
+    
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Hypersequester - Forest Carbon Assessment" />
+    <meta name="twitter:description" content="Comprehensive hyperspectral forest carbon assessment platform" />
+    <meta name="twitter:image" content="%PUBLIC_URL%/twitter-image.png" />
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" as="style" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    
+    <!-- Performance optimizations -->
+    <link rel="dns-prefetch" href="//api.mapbox.com" />
+    <link rel="dns-prefetch" href="//tiles.mapbox.com" />
+  </head>
+  <body>
+    <noscript>
+      <div style="text-align: center; padding: 50px; font-family: Arial, sans-serif;">
+        <h1>🌲 Hypersequester</h1>
+        <p>You need to enable JavaScript to run this application.</p>
+        <p>Hypersequester is a comprehensive hyperspectral forest carbon assessment platform.</p>
+      </div>
+    </noscript>
+    <div id="root"></div>
+    
+    <!-- Loading indicator -->
+    <div id="loading-indicator" style="
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #f5f5f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      font-family: Arial, sans-serif;
+    ">
+      <div style="text-align: center;">
+        <div style="
+          width: 40px;
+          height: 40px;
+          border: 4px solid #f3f3f3;
+          border-top: 4px solid #52c41a;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 20px;
+        "></div>
+        <h2 style="color: #52c41a; margin: 0;">🌲 Hypersequester</h2>
+        <p style="color: #666; margin: 10px 0 0;">Loading Forest Carbon Assessment Platform...</p>
+      </div>
+    </div>
+    
+    <style>
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      /* Hide loading indicator when React loads */
+      #root:not(:empty) ~ #loading-indicator {
+        display: none;
+      }
+    </style>
+    
+    <!-- Remove loading indicator after React mounts -->
+    <script>
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          const loadingIndicator = document.getElementById('loading-indicator');
+          if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+          }
+        }, 1000);
+      });
+    </script>
+  </body>
+</html>
