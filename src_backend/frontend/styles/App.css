@@ -1,0 +1,67 @@
+/* App-specific styles */
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  padding: 20px;
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Custom components */
+.forest-icon {
+  font-size: 24px;
+  color: #52c41a;
+}
+
+.carbon-metric {
+  color: #52c41a;
+  font-weight: bold;
+}
+
+.processing-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-container {
+  height: 400px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.results-chart {
+  height: 300px;
+}
+
+.species-bar {
+  height: 8px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
